@@ -40,8 +40,8 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     var wizardDone by mutableStateOf(sl.prefs.getBoolean("wizard_done", false))
         private set
-    var updateRepo by mutableStateOf(sl.prefs.getString("update_repo", "") ?: "")
-        private set
+    private var updateRepoState by mutableStateOf(sl.prefs.getString("update_repo", "") ?: "")
+    val updateRepo: String get() = updateRepoState
     var apkRefresh by mutableIntStateOf(0)
         private set
     val apkInfos: SnapshotStateMap<Long, ApkInfo?> = mutableStateMapOf()
@@ -62,7 +62,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
 
     fun say(s: String) { messages.tryEmit(s) }
     fun finishWizard() { sl.prefs.edit().putBoolean("wizard_done", true).apply(); wizardDone = true }
-    fun setUpdateRepo(r: String) { updateRepo = r; sl.prefs.edit().putString("update_repo", r).apply() }
+    fun setUpdateRepo(r: String) { updateRepoState = r; sl.prefs.edit().putString("update_repo", r).apply() }
 
     // ---- library ----
     fun importUris(uris: List<Uri>) = viewModelScope.launch {
