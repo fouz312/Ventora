@@ -2,10 +2,6 @@ name: Unpack project zip
 
 on:
   workflow_dispatch:
-    inputs:
-      zip_name:
-        description: "ZIP file already uploaded to the repository root"
-        default: "Vantora.zip"
 
 permissions:
   contents: write
@@ -15,23 +11,28 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Unpack and commit
-        env:
-          ZIP: ${{ inputs.zip_name }}
+      - name: Find the newest project zip, unpack it, commit
         run: |
           set -e
-          test -f "$ZIP" || { echo "::error::$ZIP not found in the repository root. Upload it first."; ls -la; exit 1; }
+          ZIP=""; NEWEST=0
+          while IFS= read -r f; do
+            t="$(git log -1 --format=%ct -- "$f")"
+            if [ "${t:-0}" -gt "$NEWEST" ]; then NEWEST="$t"; ZIP="$f"; fi
+          done < <(git ls-files | grep -i '\.zip$' || true)
+          [ -n "$ZIP" ] || { echo "::error::No .zip file found in the repository."; exit 1; }
+          echo "Using: $ZIP"
           TMP="$(mktemp -d)"
           unzip -q "$ZIP" -d "$TMP"
           SRC="$TMP"
           if [ "$(ls -A "$TMP" | wc -l)" = "1" ] && [ -d "$TMP/$(ls -A "$TMP")" ]; then SRC="$TMP/$(ls -A "$TMP")"; fi
           rm -rf "$SRC/.github"
           cp -a "$SRC"/. .
-          rm -f "$ZIP"
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
-          git add -A
+          git add -A -- . ':(exclude).github'
           git commit -m "Unpack project from $ZIP" || echo "Nothing to commit"
           git push
           echo "Repository layout now:"
