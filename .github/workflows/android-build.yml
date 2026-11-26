@@ -12,8 +12,13 @@ on:
         default: true
 
 jobs:
+  # ------------------------------------------------------------------
+  # Job 1: cross-compile the QEMU virtualization engine for Android arm64.
+  # If this job fails, the app job still builds an APK (without the engine)
+  # and the app reports "engine not bundled" honestly.
+  # ------------------------------------------------------------------
   qemu-engine:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_qemu }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.build_qemu }}
     runs-on: ubuntu-24.04
     timeout-minutes: 150
     continue-on-error: true
@@ -51,6 +56,9 @@ jobs:
           path: native/qemu/out/jniLibs
           if-no-files-found: error
 
+  # ------------------------------------------------------------------
+  # Job 2: build, test and package the Android app.
+  # ------------------------------------------------------------------
   app:
     needs: qemu-engine
     if: ${{ always() }}
