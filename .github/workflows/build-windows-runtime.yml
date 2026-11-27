@@ -1,0 +1,111 @@
+name: Build Windows runtime pack
+
+# Stage 1 of the Windows-program runner: builds a Linux (Debian arm64) root filesystem that contains
+#   - box64   (translates x86-64 CPU instructions to ARM64)
+#   - Wine    (translates Windows API calls; x86-64 build)
+#   - Xtigervnc (a virtual screen the app can display through its existing VNC viewer)
+# and publishes it as a GitHub Release asset (too big for normal artifacts).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Host tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu cmake ninja-build python3 xz-utils jq curl git
+
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Cross-compile box64 for Linux arm64
+        run: |
+          mkdir -p assets out
+          git clone --depth 1 --branch v0.3.0 https://github.com/ptitSeb/box64.git box64-src
+          cmake -S box64-src -B box64-src/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DARM_DYNAREC=ON -DARM64=ON \
+            -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc -DCMAKE_ASM_COMPILER=aarch64-linux-gnu-gcc
+          cmake --build box64-src/build -j"$(nproc)"
+          file box64-src/build/box64 || true
+          cp box64-src/build/box64 assets/box64
+
+      - name: Download an x86-64 Wine build (Kron4ek/Wine-Builds)
+        run: |
+          WINE_VERSION=9.20
+          URL="https://github.com/Kron4ek/Wine-Builds/releases/download/${WINE_VERSION}/wine-${WINE_VERSION}-amd64.tar.xz"
+          if ! curl -fL --retry 3 "$URL" -o assets/wine.tar.xz; then
+            echo "Pinned version not found, using the newest plain amd64 build"
+            URL="$(curl -fsSL https://api.github.com/repos/Kron4ek/Wine-Builds/releases | jq -r '[.[].assets[].browser_download_url | select(test("/wine-[0-9.]+-amd64\\.tar\\.xz$"))][0]')"
+            echo "Using $URL"
+            curl -fL --retry 3 "$URL" -o assets/wine.tar.xz
+          fi
+          echo "$URL" > assets/wine-source.txt
+          ls -l assets
+
+      - name: Build the root filesystem inside an arm64 Debian container
+        run: |
+          cat > assets/build-in-container.sh <<'EOS'
+          set -eux
+          export DEBIAN_FRONTEND=noninteractive
+          dpkg --add-architecture amd64
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates xz-utils procps \
+            tigervnc-standalone-server x11-xkb-utils xkb-data xauth x11-utils \
+            fonts-dejavu-core fonts-liberation libgl1-mesa-dri libglx-mesa0
+          # x86-64 libraries that Wine loads (box64 runs them)
+          apt-get install -y --no-install-recommends \
+            libc6:amd64 libx11-6:amd64 libxext6:amd64 libxrender1:amd64 libxrandr2:amd64 \
+            libxcursor1:amd64 libxi6:amd64 libxfixes3:amd64 libxcomposite1:amd64 libxinerama1:amd64 \
+            libxxf86vm1:amd64 libfreetype6:amd64 libfontconfig1:amd64 libglib2.0-0:amd64 \
+            libasound2:amd64 libpulse0:amd64 libgnutls30:amd64 libdbus-1-3:amd64 \
+            libsdl2-2.0-0:amd64 libncurses6:amd64 libpng16-16:amd64 libjpeg62-turbo:amd64 libgl1:amd64
+          install -m 0755 /assets/box64 /usr/local/bin/box64
+          mkdir -p /opt/wine
+          tar -xf /assets/wine.tar.xz -C /opt/wine --strip-components=1
+          [ -e /opt/wine/bin/wine64 ] || ln -s wine /opt/wine/bin/wine64
+          mkdir -p /root /tmp /run
+          apt-get clean
+          rm -rf /var/lib/apt/lists/* /var/cache/apt/* /usr/share/doc/* /usr/share/man/*
+          EOS
+          docker run --platform linux/arm64 --name rt -v "$PWD/assets:/assets:ro" debian:bookworm-slim bash /assets/build-in-container.sh
+          docker commit rt vantora-runtime:test
+
+      - name: Smoke test (informational)
+        continue-on-error: true
+        run: |
+          docker run --rm --platform linux/arm64 vantora-runtime:test bash -c '
+            echo "--- box64:";  box64 --version || true
+            echo "--- Xtigervnc:"; Xtigervnc -version 2>&1 | head -3 || true
+            echo "--- wine files:"; ls /opt/wine/bin | head -20
+            echo "--- wine64 under box64 (slow under emulation):"
+            timeout 240 box64 /opt/wine/bin/wine64 --version || echo "wine64 --version did not finish under CI emulation (not necessarily a problem)"
+          '
+
+      - name: Package and publish
+        run: |
+          docker export rt | xz -T0 -6 > out/windows-runtime-rootfs.tar.xz
+          cp assets/wine-source.txt out/wine-source.txt
+          ( cd out && sha256sum windows-runtime-rootfs.tar.xz > SHA256SUMS.txt )
+          ls -lh out
+
+      - name: Publish as a GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-runtime
+          name: Windows runtime pack
+          prerelease: true
+          body: "Debian arm64 root filesystem with box64, Wine (x86-64) and Xtigervnc for the Vantora app. See docs/WINDOWS_RUNTIME.md."
+          files: |
+            out/windows-runtime-rootfs.tar.xz
+            out/SHA256SUMS.txt
+            out/wine-source.txt
