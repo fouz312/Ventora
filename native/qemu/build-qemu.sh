@@ -9,7 +9,7 @@ set -euo pipefail
 : "${ANDROID_NDK_HOME:?Set ANDROID_NDK_HOME to the NDK root}"
 API=28                                   # bionic gained iconv in API 28, which GLib needs
 TRIPLE=aarch64-linux-android
-QEMU_VERSION="${QEMU_VERSION:-9.1.0}"
+QEMU_VERSION="${QEMU_VERSION:-8.2.7}"
 TARGETS="${QEMU_TARGETS:-aarch64-softmmu}"
 ZLIB=1.3.1; FFI=3.4.6; PCRE2=10.44; GLIB=2.80.5; PIXMAN=0.43.4; SLIRP=4.8.0
 
@@ -91,6 +91,8 @@ mkdir -p "$SRC/qemu/_build" && cd "$SRC/qemu/_build"
 ../configure \
   --cross-prefix="${TRIPLE}-" --cc="$CC" --cxx="$CXX" --host-cc=gcc \
   --target-list="$TARGETS" --enable-slirp --disable-tools --disable-gio \
+  --disable-vhost-user --disable-vhost-net --disable-vhost-kernel --disable-vhost-vdpa --disable-vhost-crypto \
+  --disable-vhost-user-blk-server --disable-libvduse --disable-vduse-blk-export \
   --disable-docs --disable-guest-agent --disable-werror --disable-user --disable-linux-user --disable-bsd-user \
   --disable-gtk --disable-sdl --disable-opengl --disable-curses --disable-libusb --disable-vde --disable-brlapi \
   --disable-alsa --disable-pa --disable-jack --disable-oss --disable-gnutls --disable-nettle --disable-gcrypt \
