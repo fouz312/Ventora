@@ -60,7 +60,7 @@ object MediaInspector {
         // ISO9660: "CD001" at 0x8001
         val pvd = BinSearch.read(ch, 0x8000, 2048)
         if (pvd.size >= 2048 && pvd[0].toInt() == 1 && pvd.has("CD001", 1)) {
-            val label = String(pvd, 40, 32, Charsets.US_ASCII).trim().ifBlank { null }
+            val label = String(pvd, 40, 32, Charsets.US_ASCII).trim { it <= ' ' }.ifBlank { null }
             val notes = mutableListOf<String>()
             var udf = false
             for (sector in 16..40) {
