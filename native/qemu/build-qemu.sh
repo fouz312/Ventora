@@ -10,7 +10,7 @@ set -euo pipefail
 API=28                                   # bionic gained iconv in API 28, which GLib needs
 TRIPLE=aarch64-linux-android
 QEMU_VERSION="${QEMU_VERSION:-9.1.0}"
-TARGETS="${QEMU_TARGETS:-aarch64-softmmu,x86_64-softmmu}"
+TARGETS="${QEMU_TARGETS:-aarch64-softmmu}"
 ZLIB=1.3.1; FFI=3.4.6; PCRE2=10.44; GLIB=2.80.5; PIXMAN=0.43.4; SLIRP=4.8.0
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -23,6 +23,8 @@ export CC="${TRIPLE}${API}-clang" CXX="${TRIPLE}${API}-clang++"
 export AR=llvm-ar RANLIB=llvm-ranlib STRIP=llvm-strip
 export CFLAGS="-fPIC -O2 -I$PREFIX/include" LDFLAGS="-L$PREFIX/lib"
 export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" PKG_CONFIG_PATH=""
+export PKG_CONFIG="$(command -v pkg-config)"
+export NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf LD=ld.lld
 
 python3 -m venv "$WORK/venv" && "$WORK/venv/bin/pip" install -q meson tomli packaging
 export PATH="$WORK/venv/bin:$PATH"
@@ -56,7 +58,7 @@ INI
 
 meson_build() {  # dir [extra meson args]
   local d="$1"; shift
-  ( cd "$SRC/$d" && meson setup _b --cross-file "$WORK/cross.ini" --prefix "$PREFIX" --libdir lib --buildtype release "$@" \
+  ( cd "$SRC/$d" && rm -rf _b && meson setup _b --cross-file "$WORK/cross.ini" --prefix "$PREFIX" --libdir lib --buildtype release "$@" \
     && ninja -C _b install )
 }
 autotools_build() {  # dir [extra configure args]
@@ -88,11 +90,11 @@ fi
 mkdir -p "$SRC/qemu/_build" && cd "$SRC/qemu/_build"
 ../configure \
   --cross-prefix="${TRIPLE}-" --cc="$CC" --cxx="$CXX" --host-cc=gcc \
-  --target-list="$TARGETS" --enable-slirp --enable-tools \
+  --target-list="$TARGETS" --enable-slirp --disable-tools --disable-gio \
   --disable-docs --disable-guest-agent --disable-werror --disable-user --disable-linux-user --disable-bsd-user \
   --disable-gtk --disable-sdl --disable-opengl --disable-curses --disable-libusb --disable-vde --disable-brlapi \
   --disable-alsa --disable-pa --disable-jack --disable-oss --disable-gnutls --disable-nettle --disable-gcrypt \
-  --disable-libnfs --disable-rbd --disable-glusterfs --disable-libssh --disable-capstone --disable-fdt \
+  --disable-libnfs --disable-rbd --disable-glusterfs --disable-libssh --disable-capstone --enable-fdt=internal \
   --extra-cflags="$CFLAGS" --extra-ldflags="$LDFLAGS"
 make -j"$(nproc)"
 
