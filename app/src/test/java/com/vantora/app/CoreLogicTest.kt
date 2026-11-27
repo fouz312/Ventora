@@ -20,7 +20,7 @@ class CoreLogicTest {
         abis, 8, "test", emptySet(), ram, ram / 2, 200_000, 34, "14", "Test", "3.2", "GPU", "V", "1.3", kvm)
 
     private fun tmp(bytes: ByteArray): RandomAccessFile {
-        val f = File.createTempFile("vt", ".bin"); f.deleteOnExit(); f.writeBytes(bytes); return RandomAccessFile(f, "r")
+        val f = File.createTempFile("vantora", ".bin"); f.deleteOnExit(); f.writeBytes(bytes); return RandomAccessFile(f, "r")
     }
 
     /** Minimal PE32+ with the given machine and one import (kernel32.dll). */
