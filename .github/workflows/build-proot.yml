@@ -1,0 +1,79 @@
+name: Build proot for Android
+
+# Stage 2 of the Windows-program runner.
+# proot starts the Debian runtime pack without root. Android only lets an app run programs that are
+# packaged as lib*.so inside the APK, so this workflow turns proot (+ its loader and talloc library)
+# into libproot.so / libproot-loader.so / libtalloc.so and publishes them as a GitHub Release.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  proot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y patchelf binutils curl xz-utils dpkg
+
+      - name: Download proot from the Termux package repository (Android arm64 builds)
+        run: |
+          set -euo pipefail
+          BASE=https://packages.termux.dev/apt/termux-main
+          curl -fsSL "$BASE/dists/stable/main/binary-aarch64/Packages" -o Packages
+          getfile() {
+            awk -v p="$1" 'BEGIN{RS="";FS="\n"} { n=""; f=""; for(i=1;i<=NF;i++){ if($i ~ /^Package: /){n=substr($i,10)} if($i ~ /^Filename: /){f=substr($i,11)} } if(n==p){print f; exit} }' Packages
+          }
+          for pkg in proot libtalloc; do
+            f="$(getfile "$pkg")"
+            [ -n "$f" ] || { echo "package $pkg not found in the Termux index"; exit 1; }
+            echo "$pkg -> $f"
+            curl -fsSL "$BASE/$f" -o "$pkg.deb"
+            dpkg-deb -x "$pkg.deb" "x-$pkg"
+          done
+          find x-proot x-libtalloc -type f | head -40
+
+      - name: Turn them into app-loadable libraries
+        run: |
+          set -euo pipefail
+          PROOT="$(find x-proot -type f -name proot | head -1)"
+          LOADER="$(find x-proot -type f -path '*libexec/proot/loader' | head -1)"
+          TALLOC="$(find x-libtalloc -type f -name 'libtalloc.so*' | head -1)"
+          [ -n "$PROOT" ] && [ -n "$LOADER" ] && [ -n "$TALLOC" ] || { echo "a file is missing"; exit 1; }
+          echo "NEEDED by proot:"; readelf -d "$PROOT" | grep NEEDED || true
+          for lib in $(readelf -d "$PROOT" | grep NEEDED | sed 's/.*\[\(.*\)\]/\1/'); do
+            case "$lib" in libc.so|libdl.so|libm.so|liblog.so|libtalloc.so*) ;; *) echo "UNEXPECTED dependency: $lib"; exit 1 ;; esac
+          done
+          mkdir -p out/lib
+          cp "$PROOT"  out/lib/libproot.so
+          cp "$LOADER" out/lib/libproot-loader.so
+          cp "$TALLOC" out/lib/libtalloc.so
+          chmod 755 out/lib/*
+          NEED="$(readelf -d out/lib/libproot.so | grep -o 'libtalloc[^]]*' | head -1)"
+          patchelf --replace-needed "$NEED" libtalloc.so out/lib/libproot.so
+          patchelf --set-rpath '$ORIGIN' out/lib/libproot.so
+          patchelf --set-soname libtalloc.so out/lib/libtalloc.so
+          {
+            echo "== libproot.so dynamic section"; readelf -d out/lib/libproot.so
+            echo; echo "== interpreter"; readelf -l out/lib/libproot.so | grep -i interpreter || true
+            echo; echo "== hard-coded Termux paths (the app must override these with environment variables)"
+            strings out/lib/libproot.so | grep -i 'com.termux' || echo "none"
+            echo; echo "== sizes"; ls -l out/lib
+          } | tee out/PROOT-REPORT.txt
+          tar -C out -czf proot-android-arm64.tar.gz lib PROOT-REPORT.txt
+          ls -l proot-android-arm64.tar.gz
+
+      - name: Publish as a GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: proot-android
+          name: proot for Android (arm64)
+          prerelease: true
+          body: "proot, its loader and libtalloc repackaged as lib*.so for the Vantora app. Source and licences: https://github.com/termux/proot (GPL-2.0)."
+          files: |
+            proot-android-arm64.tar.gz
+            out/PROOT-REPORT.txt
