@@ -42,7 +42,13 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
         }
     ) { pad ->
         NavHost(nav, startDestination = if (vm.wizardDone) "home" else "wizard", modifier = Modifier.padding(pad)) {
-            composable("wizard") { WizardScreen(vm) { vm.finishWizard(); go(nav, "home") } }
+            composable("wizard") {
+                WizardScreen(vm) {
+                    vm.finishWizard()
+                    // wipe the whole back stack (including the wizard) so it can never come back
+                    nav.navigate("home") { popUpTo(nav.graph.id) { inclusive = true } }
+                }
+            }
             composable("home") { HomeScreen(vm, onNavigate = { go(nav, it) }) }
             composable("computer") { ComputerScreen(vm, onCreate = { nav.navigate("wizard") }) }
             composable("windows") { WindowsScreen(vm) }
@@ -54,7 +60,6 @@ fun AppRoot(vm: AppViewModel = viewModel()) {
 }
 
 private fun go(nav: NavHostController, route: String) = nav.navigate(route) {
-    popUpTo("home") { saveState = true }
+    popUpTo("home")
     launchSingleTop = true
-    restoreState = true
 }
