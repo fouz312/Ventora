@@ -90,7 +90,7 @@ fi
 mkdir -p "$SRC/qemu/_build" && cd "$SRC/qemu/_build"
 ../configure \
   --cross-prefix="${TRIPLE}-" --cc="$CC" --cxx="$CXX" --host-cc=gcc \
-  --target-list="$TARGETS" --enable-slirp --disable-tools --disable-gio \
+  --target-list="$TARGETS" --enable-slirp --disable-tools --disable-gio --disable-virtfs \
   --disable-vhost-user --disable-vhost-net --disable-vhost-kernel --disable-vhost-vdpa --disable-vhost-crypto \
   --disable-vhost-user-blk-server --disable-libvduse --disable-vduse-blk-export \
   --disable-docs --disable-guest-agent --disable-werror --disable-user --disable-linux-user --disable-bsd-user \
@@ -98,7 +98,8 @@ mkdir -p "$SRC/qemu/_build" && cd "$SRC/qemu/_build"
   --disable-alsa --disable-pa --disable-jack --disable-oss --disable-gnutls --disable-nettle --disable-gcrypt \
   --disable-libnfs --disable-rbd --disable-glusterfs --disable-libssh --disable-capstone --enable-fdt=internal \
   --extra-cflags="$CFLAGS" --extra-ldflags="$LDFLAGS"
-make -j"$(nproc)"
+# build only the emulator program(s): skips tests, docs and helper tools that are not needed
+for t in ${TARGETS//,/ }; do make -j"$(nproc)" "qemu-system-${t%%-*}"; done
 
 cp qemu-system-aarch64 "$OUT/jniLibs/arm64-v8a/libqemu-system-aarch64.so" 2>/dev/null || true
 cp qemu-system-x86_64  "$OUT/jniLibs/arm64-v8a/libqemu-system-x86_64.so"  2>/dev/null || true
